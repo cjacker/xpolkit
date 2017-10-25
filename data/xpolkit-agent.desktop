@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=PolicyKit Authentication Agent
+Exec=xpolkit-agent
+Terminal=false
+Type=Application
+NoDisplay=true
+NotShowIn=GNOME;KDE;XFCE;X-IVI;Unity;MATE;LXDE
+StartupNotify=false
