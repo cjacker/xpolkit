@@ -99,7 +99,6 @@ static void on_session_completed(PolkitAgentSession* session,
 static void on_session_request(PolkitAgentSession* session, gchar *req,
 			       gboolean visibility, AuthDlgData *d)
 {
-	g_debug("Request: %s\nVisibility: %i\n", req, visibility);
 	gtk_label_set_text(GTK_LABEL(d->entry_label), req);
 	gtk_entry_set_visibility(GTK_ENTRY(d->entry), visibility);
 }
@@ -200,16 +199,11 @@ static void initiate_authentication(PolkitAgentListener  *listener,
 	GtkWidget *grid;
 	AuthDlgData *d = g_slice_new0(AuthDlgData);
 
-	char** p;
-
-	for(p = polkit_details_get_keys(details); *p; ++p)
-		g_debug("initiate_authentication: %s: %s", *p, polkit_details_lookup(details, *p));
-
 	d->task = g_task_new(listener, cancellable, callback, user_data);
 	d->cancellable = cancellable;
 	d->action_id = g_strdup(action_id);
 	d->cookie = g_strdup(cookie);
-	d->auth_dlg = gtk_dialog_new_with_buttons("Polkit Agent", NULL,
+	d->auth_dlg = gtk_dialog_new_with_buttons("XPolkit Agent", NULL,
             GTK_DIALOG_MODAL,
 			"Cancel", GTK_RESPONSE_CANCEL,
 			"OK", GTK_RESPONSE_OK,
@@ -254,7 +248,6 @@ static void initiate_authentication(PolkitAgentListener  *listener,
 static gboolean initiate_authentication_finish(PolkitAgentListener *listener,
 				 GAsyncResult *res, GError **error)
 {
-	g_debug("initiate_authentication_finish");
     gboolean has_error = g_task_had_error(G_TASK(res));
     g_task_propagate_pointer (G_TASK(res), error);
 	return !has_error;
