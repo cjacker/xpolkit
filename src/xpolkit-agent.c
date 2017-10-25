@@ -203,14 +203,21 @@ static void initiate_authentication(PolkitAgentListener  *listener,
 	d->cancellable = cancellable;
 	d->action_id = g_strdup(action_id);
 	d->cookie = g_strdup(cookie);
-	d->auth_dlg = gtk_dialog_new_with_buttons("XPolkit Agent", NULL,
+	d->auth_dlg = gtk_dialog_new_with_buttons("Authenticate", NULL,
             GTK_DIALOG_MODAL,
 			"Cancel", GTK_RESPONSE_CANCEL,
-			"OK", GTK_RESPONSE_OK,
+			"Authenticate", GTK_RESPONSE_OK,
 			NULL);
+
     gtk_window_set_keep_above(GTK_WINDOW(d->auth_dlg), TRUE);
+    gtk_window_set_icon_name (GTK_WINDOW(d->auth_dlg), "dialog-password");
+
+    gtk_container_set_border_width (GTK_CONTAINER (d->auth_dlg), 5);
 
 	content = gtk_dialog_get_content_area(GTK_DIALOG(d->auth_dlg));
+
+    gtk_box_set_spacing (GTK_BOX (content), 2); /* 2 * 5 + 2 = 12 */
+    gtk_window_set_resizable (GTK_WINDOW(d->auth_dlg), FALSE);
 
 	combo_label = gtk_label_new("Identity:");
 	gtk_widget_show(combo_label);
