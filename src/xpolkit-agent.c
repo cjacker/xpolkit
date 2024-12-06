@@ -50,8 +50,8 @@ static void on_id_combo_user_changed(GtkComboBox *box, AuthDlgData *d);
 
 static void auth_dlg_data_free(AuthDlgData *d)
 {
-	gtk_widget_destroy(d->auth_dlg);
-	g_signal_handlers_disconnect_by_func(d->cancellable, on_cancelled, d);
+	gtk_window_destroy(GTK_WINDOW(d->auth_dlg));
+  g_signal_handlers_disconnect_by_func(d->cancellable, on_cancelled, d);
 
 	g_object_unref(d->task);
 	g_object_unref(d->session);
@@ -60,49 +60,48 @@ static void auth_dlg_data_free(AuthDlgData *d)
 	g_slice_free(AuthDlgData, d);
 }
 
+
 static void on_cancelled(GCancellable *cancellable, AuthDlgData *d)
 {
-	if (d->session)
-		polkit_agent_session_cancel(d->session);
-	else
-		auth_dlg_data_free(d);
+  if (d->session)
+    polkit_agent_session_cancel(d->session);
+  else
+    auth_dlg_data_free(d);
 }
 
-static void on_auth_dlg_response(GtkDialog *dlg, int response, AuthDlgData *d)
+
+static void cancel_btn_click_cb(GtkWidget *widget, AuthDlgData *d)
 {
-  if(response == GTK_RESPONSE_OK && strlen(gtk_entry_get_text(GTK_ENTRY(d->entry))) == 0) {
-	  gtk_widget_set_sensitive(d->auth_dlg, TRUE);
-	  gtk_label_set_text(GTK_LABEL(d->status), "Failed. Empty password!");
-	  g_object_unref(d->session);
-	  d->session = NULL;
-	  gtk_entry_set_text(GTK_ENTRY(d->entry), "");
-	  gtk_widget_grab_focus(d->entry);
-	  on_id_combo_user_changed(GTK_COMBO_BOX(d->id_combo), d);
+  g_cancellable_cancel(d->cancellable);
+}
+
+static void ok_btn_click_cb(GtkWidget *widget, AuthDlgData *d)
+{
+  const char *txt = gtk_editable_get_text(GTK_EDITABLE(d->entry));
+  if(strlen(txt) == 0) {
+	  gtk_label_set_text(GTK_LABEL(d->status), "Failed. Empty password.");
     return;
   }
-
-	if (response == GTK_RESPONSE_OK) {
-		const char *txt = gtk_entry_get_text(GTK_ENTRY(d->entry));
-		polkit_agent_session_response(d->session, txt);
-		gtk_widget_set_sensitive(d->auth_dlg, FALSE);
-	} else
-		g_cancellable_cancel(d->cancellable);
+  polkit_agent_session_response(d->session, txt);
+  gtk_widget_set_sensitive(d->auth_dlg, FALSE);
 }
 
 static void on_session_completed(PolkitAgentSession* session,
 				 gboolean authorized, AuthDlgData* d)
 {
 	gtk_widget_set_sensitive(d->auth_dlg, TRUE);
-	if (authorized || g_cancellable_is_cancelled(d->cancellable)) {
+
+	if (authorized  || g_cancellable_is_cancelled(d->cancellable)) {
 		gtk_label_set_text(GTK_LABEL(d->status), NULL);
 		g_task_return_pointer(d->task, NULL, NULL);
 		auth_dlg_data_free(d);
 		return;
 	}
+
 	gtk_label_set_text(GTK_LABEL(d->status), "Failed. Wrong password?");
 	g_object_unref(d->session);
 	d->session = NULL;
-	gtk_entry_set_text(GTK_ENTRY(d->entry), "");
+	gtk_editable_set_text(GTK_EDITABLE(d->entry), "");
 	gtk_widget_grab_focus(d->entry);
 	on_id_combo_user_changed(GTK_COMBO_BOX(d->id_combo), d);
 }
@@ -141,11 +140,6 @@ static void on_id_combo_user_changed(GtkComboBox *combo, AuthDlgData *d)
 	polkit_agent_session_initiate(d->session);
 }
 
-static void on_entry_activate(GtkWidget *entry, AuthDlgData *d)
-{
-	gtk_dialog_response(GTK_DIALOG(d->auth_dlg), GTK_RESPONSE_OK);
-}
-
 static void add_identities(GtkComboBox *combo, GList *identities)
 {
 	GList *p;
@@ -182,16 +176,17 @@ static void add_identities(GtkComboBox *combo, GList *identities)
 				       "text", 0, NULL);
 }
 
-static GtkWidget *grid2x2(GtkWidget *top_left, GtkWidget *top_right,
-			 GtkWidget *bottom_left, GtkWidget *bottom_right)
+
+static gboolean
+key_pressed_cb (GtkEventControllerKey *event_controller,
+                guint                  keyval,
+                guint                  keycode,
+                GdkModifierType        state,
+                AuthDlgData* d)
 {
-	GtkWidget *table = gtk_grid_new();
-	gtk_grid_attach(GTK_GRID(table), top_left, 0, 0, 1, 1);
-	gtk_grid_attach(GTK_GRID(table), top_right, 1, 0, 1, 1);
-	gtk_grid_attach(GTK_GRID(table), bottom_left, 0, 1, 1, 1);
-	gtk_grid_attach(GTK_GRID(table), bottom_right, 1, 1, 1, 1);
-	gtk_widget_show(table);
-	return table;
+  if(keyval == GDK_KEY_Escape)
+    g_cancellable_cancel(d->cancellable);
+  return TRUE;
 }
 
 static void initiate_authentication(PolkitAgentListener  *listener,
@@ -205,61 +200,82 @@ static void initiate_authentication(PolkitAgentListener  *listener,
 				    GAsyncReadyCallback   callback,
 				    gpointer              user_data)
 {
-	GtkWidget *content;
 	GtkWidget *combo_label;
-	GtkWidget *grid;
 	AuthDlgData *d = g_slice_new0(AuthDlgData);
 
 	d->task = g_task_new(listener, cancellable, callback, user_data);
 	d->cancellable = cancellable;
 	d->action_id = g_strdup(action_id);
 	d->cookie = g_strdup(cookie);
-	d->auth_dlg = gtk_dialog_new_with_buttons("Authenticate", NULL,
-            GTK_DIALOG_MODAL,
-			"Cancel", GTK_RESPONSE_CANCEL,
-			"Authenticate", GTK_RESPONSE_OK,
-			NULL);
 
-  gtk_window_set_keep_above(GTK_WINDOW(d->auth_dlg), TRUE);
+  d->auth_dlg = gtk_window_new();
+  //gtk_widget_set_size_request(d->auth_dlg, 40,30);
+  //gtk_window_set_default_size(GTK_WINDOW(d->auth_dlg), 400, -1);
+  gtk_window_set_title(GTK_WINDOW(d->auth_dlg), "Authenticate");
+  gtk_window_set_modal(GTK_WINDOW(d->auth_dlg), TRUE);
   gtk_window_set_icon_name (GTK_WINDOW(d->auth_dlg), "dialog-password");
-
-  gtk_container_set_border_width (GTK_CONTAINER (d->auth_dlg), 5);
-
-	content = gtk_dialog_get_content_area(GTK_DIALOG(d->auth_dlg));
-
-  gtk_box_set_spacing (GTK_BOX (content), 2); /* 2 * 5 + 2 = 12 */
   gtk_window_set_resizable (GTK_WINDOW(d->auth_dlg), FALSE);
 
-	combo_label = gtk_label_new("Identity:");
-	gtk_widget_show(combo_label);
 
-	d->id_combo = gtk_combo_box_new();
+  // handle esc key
+  GtkEventController *event_controller; 
+  event_controller = gtk_event_controller_key_new ();
+  g_signal_connect(event_controller, "key-pressed", G_CALLBACK (key_pressed_cb), d);
+  gtk_widget_add_controller (GTK_WIDGET (d->auth_dlg), event_controller);
+
+  GtkWidget *grid = gtk_grid_new();
+  gtk_window_set_child(GTK_WINDOW(d->auth_dlg), grid);
+
+  GtkWidget *message_label = gtk_label_new(message);
+  //gtk_label_set_wrap(GTK_LABEL(message_label), TRUE);
+  gtk_grid_attach(GTK_GRID(grid), message_label, 0, 0, 2, 1); 
+
+  combo_label = gtk_label_new("Identity:");
+  gtk_grid_attach(GTK_GRID(grid), combo_label, 0,1,1,1);
+	
+  d->id_combo = gtk_combo_box_new();
+  gtk_grid_attach(GTK_GRID(grid), d->id_combo, 1,1,1,1);
+
 	add_identities(GTK_COMBO_BOX(d->id_combo), identities);
+
 	g_signal_connect(d->id_combo, "changed",
 			 G_CALLBACK(on_id_combo_user_changed), d);
 	gtk_combo_box_set_active(GTK_COMBO_BOX(d->id_combo), 0);
-	gtk_widget_show(d->id_combo);
+	
 
-	d->entry_label = gtk_label_new(NULL);
-	gtk_widget_show(d->entry_label);
+  d->entry_label = gtk_label_new(NULL);
+  gtk_grid_attach(GTK_GRID(grid), d->entry_label, 0,2,1,1);
 
 	d->entry = gtk_entry_new();
+  gtk_grid_attach(GTK_GRID(grid), d->entry, 1,2,1,1);
+
+  gtk_entry_set_activates_default(GTK_ENTRY(d->entry), TRUE);
+
 	gtk_entry_set_visibility(GTK_ENTRY(d->entry), FALSE);
-	gtk_widget_show(d->entry);
-	g_signal_connect (d->entry, "activate", G_CALLBACK(on_entry_activate), d);
 
-	grid = grid2x2(combo_label, d->id_combo, d->entry_label, d->entry);
-	gtk_box_pack_start(GTK_BOX(content), grid, TRUE, TRUE, 0);
+	g_signal_connect(d->entry, "activate", G_CALLBACK(ok_btn_click_cb), d);
 
-	d->status = gtk_label_new(NULL);
-	gtk_box_pack_start(GTK_BOX(content), d->status, TRUE, TRUE, 0);
-	gtk_widget_show(d->status);
+  d->status = gtk_label_new(NULL);
+  gtk_grid_attach(GTK_GRID(grid), d->status, 0,3,2,1);
+ 
 
-	g_signal_connect(cancellable, "cancelled", G_CALLBACK(on_cancelled), d);
-	g_signal_connect(d->auth_dlg, "response",
-			 G_CALLBACK(on_auth_dlg_response), d);
+  GtkWidget *cancel_button = gtk_button_new_with_label("Cancel");
+  GtkWidget *ok_button = gtk_button_new_with_label("OK");
+
+  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+  gtk_box_set_homogeneous(GTK_BOX(box), TRUE);
+
+  gtk_box_append(GTK_BOX(box), cancel_button);
+  gtk_box_append(GTK_BOX(box), ok_button);
+  gtk_grid_attach(GTK_GRID(grid), box, 0,4,2,1);
+
+	g_signal_connect(cancel_button, "clicked", G_CALLBACK(cancel_btn_click_cb), d);
+	g_signal_connect(ok_button, "clicked", G_CALLBACK(ok_btn_click_cb), d);
+  
+  g_signal_connect(cancellable, "cancelled", G_CALLBACK(on_cancelled), d);
 
 	gtk_widget_grab_focus(d->entry);
+
 	gtk_window_present(GTK_WINDOW(d->auth_dlg));
 }
 
@@ -303,16 +319,15 @@ PolkitAgentListener* xpolkit_listener_new(void)
 	return g_object_new(XPOLKIT_LISTENER_GET_TYPE, NULL);
 }
 
-
-
 int main(int argc, char *argv[])
 {
+  GMainLoop *mainloop = g_main_loop_new(NULL, FALSE);
 	PolkitAgentListener *listener;
+
 	PolkitSubject* session;
 	GError* err = NULL;
-	int rc = 0;
 
-	gtk_init(&argc, &argv);
+	gtk_init();
 
 	listener = xpolkit_listener_new();
 	session = polkit_unix_session_new_for_process_sync(getpid(), NULL, NULL);
@@ -320,12 +335,12 @@ int main(int argc, char *argv[])
 	if(!polkit_agent_listener_register(listener,
 					   POLKIT_AGENT_REGISTER_FLAGS_NONE,
 					   session, NULL, NULL, &err)) {
-		rc = 1;
-	} else {
-		gtk_main();
+    fprintf(stderr, "Register polkit listener error.");
+    exit(1);
 	}
+
+  g_main_loop_run(mainloop);
 
 	g_object_unref(listener);
 	g_object_unref(session);
-	return rc;
 }

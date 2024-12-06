@@ -15,7 +15,7 @@ AC_PROG_LIBTOOL
 # ***************************
 PKG_CHECK_MODULES([GLIB], [glib-2.0])
 PKG_CHECK_MODULES([POLKIT_AGENT], [polkit-agent-1])
-PKG_CHECK_MODULES([GTK], [gtk+-3.0])
+PKG_CHECK_MODULES([GTK], [gtk4])
 
 AC_OUTPUT([
 Makefile
