@@ -15,11 +15,11 @@ typedef struct _XPolkitListener  XPolkitListener;
 typedef struct _XPolkitListenerClass XPolkitListenerClass;
 
 struct _XPolkitListener {
-            PolkitAgentListener parent;
+  PolkitAgentListener parent;
 };
 
 struct _XPolkitListenerClass {
-            PolkitAgentListenerClass parent_class;
+  PolkitAgentListenerClass parent_class;
 };
 
 GType xpolkit_listener_get_type(void);
@@ -70,6 +70,17 @@ static void on_cancelled(GCancellable *cancellable, AuthDlgData *d)
 
 static void on_auth_dlg_response(GtkDialog *dlg, int response, AuthDlgData *d)
 {
+  if(response == GTK_RESPONSE_OK && strlen(gtk_entry_get_text(GTK_ENTRY(d->entry))) == 0) {
+	  gtk_widget_set_sensitive(d->auth_dlg, TRUE);
+	  gtk_label_set_text(GTK_LABEL(d->status), "Failed. Empty password!");
+	  g_object_unref(d->session);
+	  d->session = NULL;
+	  gtk_entry_set_text(GTK_ENTRY(d->entry), "");
+	  gtk_widget_grab_focus(d->entry);
+	  on_id_combo_user_changed(GTK_COMBO_BOX(d->id_combo), d);
+    return;
+  }
+
 	if (response == GTK_RESPONSE_OK) {
 		const char *txt = gtk_entry_get_text(GTK_ENTRY(d->entry));
 		polkit_agent_session_response(d->session, txt);
@@ -209,15 +220,15 @@ static void initiate_authentication(PolkitAgentListener  *listener,
 			"Authenticate", GTK_RESPONSE_OK,
 			NULL);
 
-    gtk_window_set_keep_above(GTK_WINDOW(d->auth_dlg), TRUE);
-    gtk_window_set_icon_name (GTK_WINDOW(d->auth_dlg), "dialog-password");
+  gtk_window_set_keep_above(GTK_WINDOW(d->auth_dlg), TRUE);
+  gtk_window_set_icon_name (GTK_WINDOW(d->auth_dlg), "dialog-password");
 
-    gtk_container_set_border_width (GTK_CONTAINER (d->auth_dlg), 5);
+  gtk_container_set_border_width (GTK_CONTAINER (d->auth_dlg), 5);
 
 	content = gtk_dialog_get_content_area(GTK_DIALOG(d->auth_dlg));
 
-    gtk_box_set_spacing (GTK_BOX (content), 2); /* 2 * 5 + 2 = 12 */
-    gtk_window_set_resizable (GTK_WINDOW(d->auth_dlg), FALSE);
+  gtk_box_set_spacing (GTK_BOX (content), 2); /* 2 * 5 + 2 = 12 */
+  gtk_window_set_resizable (GTK_WINDOW(d->auth_dlg), FALSE);
 
 	combo_label = gtk_label_new("Identity:");
 	gtk_widget_show(combo_label);
@@ -255,8 +266,8 @@ static void initiate_authentication(PolkitAgentListener  *listener,
 static gboolean initiate_authentication_finish(PolkitAgentListener *listener,
 				 GAsyncResult *res, GError **error)
 {
-    gboolean has_error = g_task_had_error(G_TASK(res));
-    g_task_propagate_pointer (G_TASK(res), error);
+  gboolean has_error = g_task_had_error(G_TASK(res));
+  g_task_propagate_pointer (G_TASK(res), error);
 	return !has_error;
 }
 
