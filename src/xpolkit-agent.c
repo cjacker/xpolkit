@@ -31,6 +31,8 @@ G_END_DECLS
 
 G_DEFINE_TYPE(XPolkitListener, xpolkit_listener, POLKIT_AGENT_TYPE_LISTENER);
 
+
+
 typedef struct _AuthDlgData AuthDlgData;
 struct _AuthDlgData {
 	PolkitAgentSession *session;
@@ -46,7 +48,9 @@ struct _AuthDlgData {
 };
 
 static void on_cancelled(GCancellable* cancellable, AuthDlgData* d);
-static void on_id_combo_user_changed(GtkComboBox *box, AuthDlgData *d);
+
+static void on_user_changed (GtkDropDown *dropdown, GParamSpec *pspec, gpointer data);
+
 
 static void auth_dlg_data_free(AuthDlgData *d)
 {
@@ -103,7 +107,7 @@ static void on_session_completed(PolkitAgentSession* session,
 	d->session = NULL;
 	gtk_editable_set_text(GTK_EDITABLE(d->entry), "");
 	gtk_widget_grab_focus(d->entry);
-	on_id_combo_user_changed(GTK_COMBO_BOX(d->id_combo), d);
+	on_user_changed(GTK_DROP_DOWN(d->id_combo), NULL, d);
 }
 
 static void on_session_request(PolkitAgentSession* session, gchar *req,
@@ -113,69 +117,53 @@ static void on_session_request(PolkitAgentSession* session, gchar *req,
 	gtk_entry_set_visibility(GTK_ENTRY(d->entry), visibility);
 }
 
-static void on_id_combo_user_changed(GtkComboBox *combo, AuthDlgData *d)
-{
-	GtkTreeIter iter;
-	GtkTreeModel *model = gtk_combo_box_get_model(combo);
-	PolkitIdentity *id;
 
-	if (!gtk_combo_box_get_active_iter(combo, &iter))
+static void on_user_changed (GtkDropDown *dropdown,
+                  GParamSpec *pspec,
+                  gpointer data)
+{
+  GListModel *model;
+  guint selected;
+  PolkitIdentity *id;
+
+  AuthDlgData *d = data;
+
+  model = gtk_drop_down_get_model (dropdown);
+  selected = gtk_drop_down_get_selected (dropdown);
+  id = g_list_model_get_item (model, selected);
+
+  if(!id)
 		return;
+  if (d->session) {
+    g_signal_handlers_disconnect_matched(d->session,
+                 G_SIGNAL_MATCH_DATA,
+                 0, 0, NULL, NULL, d);
+    polkit_agent_session_cancel(d->session);
+    g_object_unref(d->session);
+  }
 
-	gtk_tree_model_get(model, &iter, 1, &id, -1);
-	if (d->session) {
-		g_signal_handlers_disconnect_matched(d->session,
-						     G_SIGNAL_MATCH_DATA,
-						     0, 0, NULL, NULL, d);
-		polkit_agent_session_cancel(d->session);
-		g_object_unref(d->session);
-	}
-
-	d->session = polkit_agent_session_new(id, d->cookie);
-	g_object_unref(id);
-	g_signal_connect(d->session, "completed",
-			 G_CALLBACK(on_session_completed), d);
-	g_signal_connect(d->session, "request",
-			 G_CALLBACK(on_session_request), d);
-	polkit_agent_session_initiate(d->session);
+  d->session = polkit_agent_session_new(id, d->cookie);
+  g_object_unref(id);
+  g_signal_connect(d->session, "completed",
+       G_CALLBACK(on_session_completed), d);
+  g_signal_connect(d->session, "request",
+       G_CALLBACK(on_session_request), d);
+  polkit_agent_session_initiate(d->session);
 }
 
-static void add_identities(GtkComboBox *combo, GList *identities)
-{
-	GList *p;
-	GtkCellRenderer *column;
-	GtkListStore *store;
-
-	store = gtk_list_store_new(2, G_TYPE_STRING, G_TYPE_OBJECT);
-	for (p = identities; p != NULL; p = p->next) {
-		gchar *str = NULL;
-		PolkitIdentity *id = (PolkitIdentity *)p->data;
-		if(POLKIT_IS_UNIX_USER(id)) {
-			uid_t uid = polkit_unix_user_get_uid(POLKIT_UNIX_USER(id));
-			struct passwd *pwd = getpwuid(uid);
-			str = g_strdup(pwd->pw_name);
-		} else if(POLKIT_IS_UNIX_GROUP(id)) {
-			gid_t gid = polkit_unix_group_get_gid(POLKIT_UNIX_GROUP(id));
-			struct group *grp = getgrgid(gid);
-			str = g_strdup_printf("Group: %s", grp->gr_name);
-		} else {
-			str = polkit_identity_to_string(id);
-		}
-		gtk_list_store_insert_with_values(store, NULL, -1,
-						  0, str,
-						  1, id,
-						  -1);
-		g_free(str);
-	}
-	gtk_combo_box_set_model(combo, GTK_TREE_MODEL(store));
-	g_object_unref(store);
-
-	column = gtk_cell_renderer_text_new();
-	gtk_cell_layout_pack_start(GTK_CELL_LAYOUT(combo), column, TRUE);
-	gtk_cell_layout_set_attributes(GTK_CELL_LAYOUT(combo), column,
-				       "text", 0, NULL);
+static gchar *polkitid_to_string(PolkitIdentity *id) {
+  if(POLKIT_IS_UNIX_USER(id)) {
+    uid_t uid = polkit_unix_user_get_uid(POLKIT_UNIX_USER(id));
+    struct passwd *pwd = getpwuid(uid);
+    return g_strdup(pwd->pw_name);
+  } else if(POLKIT_IS_UNIX_GROUP(id)) {
+    gid_t gid = polkit_unix_group_get_gid(POLKIT_UNIX_GROUP(id));
+    struct group *grp = getgrgid(gid);
+    return g_strdup_printf("Group: %s", grp->gr_name);
+  } else {
+    return polkit_identity_to_string(id);
+  }
 }
-
 
 static gboolean
 key_pressed_cb (GtkEventControllerKey *event_controller,
@@ -233,15 +221,30 @@ static void initiate_authentication(PolkitAgentListener  *listener,
   combo_label = gtk_label_new("Identity:");
   gtk_grid_attach(GTK_GRID(grid), combo_label, 0,1,1,1);
 	
-  d->id_combo = gtk_combo_box_new();
+  
+  GListStore *store = g_list_store_new(POLKIT_TYPE_IDENTITY);
+  GList *p;
+  for (p = identities; p != NULL; p = p->next) {
+    PolkitIdentity *id = (PolkitIdentity *)p->data;
+    g_list_store_append(store, id);
+	}
+
+  GtkExpression *expression;
+  expression = gtk_cclosure_expression_new (G_TYPE_STRING, NULL,
+                                            0, NULL,
+                                            (GCallback)polkitid_to_string,
+                                            NULL, NULL);
+
+
+  d->id_combo = gtk_drop_down_new(G_LIST_MODEL(store),expression);
   gtk_grid_attach(GTK_GRID(grid), d->id_combo, 1,1,1,1);
 
-	add_identities(GTK_COMBO_BOX(d->id_combo), identities);
+  g_signal_connect (d->id_combo, "notify::selected", G_CALLBACK (on_user_changed), d);
 
-	g_signal_connect(d->id_combo, "changed",
-			 G_CALLBACK(on_id_combo_user_changed), d);
-	gtk_combo_box_set_active(GTK_COMBO_BOX(d->id_combo), 0);
-	
+  gtk_drop_down_set_selected(GTK_DROP_DOWN(d->id_combo), 0);  
+
+  on_user_changed(GTK_DROP_DOWN(d->id_combo), NULL, d );
+
 
   d->entry_label = gtk_label_new(NULL);
   gtk_grid_attach(GTK_GRID(grid), d->entry_label, 0,2,1,1);
