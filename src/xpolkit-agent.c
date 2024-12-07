@@ -41,10 +41,10 @@ struct _AuthDlgData {
   GCancellable* cancellable;
   GTask* task;
   GtkWidget *auth_dlg;
-  GtkWidget *entry_label;
-  GtkWidget *entry;
-  GtkWidget *id_combo;
-  GtkWidget *status;
+  GtkWidget *passwd_label;
+  GtkWidget *passwd_entry;
+  GtkWidget *id_dropdown;
+  GtkWidget *status_label;
 };
 
 static void on_cancelled(GCancellable* cancellable, AuthDlgData* d);
@@ -81,12 +81,16 @@ static void cancel_btn_click_cb(GtkWidget *widget, AuthDlgData *d)
 
 static void ok_btn_click_cb(GtkWidget *widget, AuthDlgData *d)
 {
-  const char *txt = gtk_editable_get_text(GTK_EDITABLE(d->entry));
-  if(strlen(txt) == 0) {
-    gtk_label_set_text(GTK_LABEL(d->status), "Failed. Empty password.");
+  if(gtk_widget_is_visible(d->passwd_entry) == FALSE) {
     return;
   }
-  polkit_agent_session_response(d->session, txt);
+
+  const char *password = gtk_editable_get_text(GTK_EDITABLE(d->passwd_entry));
+  if(strlen(password) == 0) {
+    gtk_label_set_text(GTK_LABEL(d->status_label), "Failed. Empty password.");
+    return;
+  }
+  polkit_agent_session_response(d->session, password);
   gtk_widget_set_sensitive(d->auth_dlg, FALSE);
 }
 
@@ -95,49 +99,47 @@ static void on_session_completed(PolkitAgentSession* session,
 {
   gtk_widget_set_sensitive(d->auth_dlg, TRUE);
 
+  // hide password label and entry,
+  // show it when request again.
+  gtk_widget_set_visible(d->passwd_label, FALSE);
+  gtk_widget_set_visible(d->passwd_entry, FALSE);
+
   if (authorized  || g_cancellable_is_cancelled(d->cancellable)) {
-    gtk_label_set_text(GTK_LABEL(d->status), NULL);
+    gtk_label_set_text(GTK_LABEL(d->status_label), NULL);
     g_task_return_pointer(d->task, NULL, NULL);
     auth_dlg_data_free(d);
     return;
   }
 
-  // hide password label and entry,
-  // show it when request again.
-  if (!authorized) {
-    gtk_widget_set_visible(d->entry_label, FALSE);
-    gtk_widget_set_visible(d->entry, FALSE);
-  }
-
-  gtk_label_set_text(GTK_LABEL(d->status), "Failed. Wrong password?");
   g_object_unref(d->session);
   d->session = NULL;
-  gtk_editable_set_text(GTK_EDITABLE(d->entry), "");
-  gtk_widget_grab_focus(d->entry);
-  on_user_changed(GTK_DROP_DOWN(d->id_combo), NULL, d);
+  gtk_label_set_text(GTK_LABEL(d->status_label), "");
+  gtk_editable_set_text(GTK_EDITABLE(d->passwd_entry), "");
+  gtk_widget_grab_focus(d->passwd_entry);
+  on_user_changed(GTK_DROP_DOWN(d->id_dropdown), NULL, d);
 }
 
 static void on_session_request(PolkitAgentSession* session, gchar *req,
              gboolean echo_on, AuthDlgData *d)
 {
-  // show entry_label/entry only when requested.
+  // show passwd_label/entry only when requested.
   // if fprint enabled, after failed 3 times,
   // It will fallback to password auth.
-  gtk_widget_set_visible(d->entry_label, TRUE);
-  gtk_widget_set_visible(d->entry, TRUE);
+  gtk_widget_set_visible(d->passwd_label, TRUE);
+  gtk_widget_set_visible(d->passwd_entry, TRUE);
 
   // clean status label
-  gtk_label_set_text(GTK_LABEL(d->status), "");
+  gtk_label_set_text(GTK_LABEL(d->status_label), "");
 
-  gtk_label_set_text(GTK_LABEL(d->entry_label), req);
-  gtk_entry_set_visibility(GTK_ENTRY(d->entry), echo_on);
+  gtk_label_set_text(GTK_LABEL(d->passwd_label), req);
+  gtk_entry_set_visibility(GTK_ENTRY(d->passwd_entry), echo_on);
 }
 
 
 //reuse status label
 static void on_show_session_msg(PolkitAgentSession* session, gchar* text, AuthDlgData* d)
 {
-  gtk_label_set_text(GTK_LABEL(d->status),text);
+  gtk_label_set_text(GTK_LABEL(d->status_label),text);
 }
 
 
@@ -145,11 +147,17 @@ static void on_user_changed (GtkDropDown *dropdown,
                   GParamSpec *pspec,
                   gpointer data)
 {
+
   GListModel *model;
   guint selected;
   PolkitIdentity *id;
 
   AuthDlgData *d = data;
+  
+  // hide password label and entry,
+  // show it when request again.
+  gtk_widget_set_visible(d->passwd_label, FALSE);
+  gtk_widget_set_visible(d->passwd_entry, FALSE);
 
   model = gtk_drop_down_get_model (dropdown);
   selected = gtk_drop_down_get_selected (dropdown);
@@ -157,6 +165,7 @@ static void on_user_changed (GtkDropDown *dropdown,
 
   if(!id)
     return;
+
   if (d->session) {
     g_signal_handlers_disconnect_matched(d->session,
                  G_SIGNAL_MATCH_DATA,
@@ -261,36 +270,36 @@ static void initiate_authentication(PolkitAgentListener  *listener,
                                             NULL, NULL);
 
 
-  d->id_combo = gtk_drop_down_new(G_LIST_MODEL(store),expression);
-  gtk_grid_attach(GTK_GRID(grid), d->id_combo, 1,1,1,1);
+  d->id_dropdown = gtk_drop_down_new(G_LIST_MODEL(store),expression);
+  gtk_grid_attach(GTK_GRID(grid), d->id_dropdown, 1,1,1,1);
 
-  g_signal_connect (d->id_combo, "notify::selected", G_CALLBACK (on_user_changed), d);
+  g_signal_connect (d->id_dropdown, "notify::selected", G_CALLBACK (on_user_changed), d);
 
-  gtk_drop_down_set_selected(GTK_DROP_DOWN(d->id_combo), 0);  
+  gtk_drop_down_set_selected(GTK_DROP_DOWN(d->id_dropdown), 0);  
 
-  on_user_changed(GTK_DROP_DOWN(d->id_combo), NULL, d );
-
-
-  d->entry_label = gtk_label_new(NULL);
-  gtk_grid_attach(GTK_GRID(grid), d->entry_label, 0,2,1,1);
-
-  d->entry = gtk_entry_new();
-  gtk_grid_attach(GTK_GRID(grid), d->entry, 1,2,1,1);
-
-  gtk_entry_set_activates_default(GTK_ENTRY(d->entry), TRUE);
-
-  gtk_entry_set_visibility(GTK_ENTRY(d->entry), FALSE);
+  on_user_changed(GTK_DROP_DOWN(d->id_dropdown), NULL, d );
 
 
-  //hide entry_label/entry when init
+  d->passwd_label = gtk_label_new(NULL);
+  gtk_grid_attach(GTK_GRID(grid), d->passwd_label, 0,2,1,1);
+
+  d->passwd_entry = gtk_entry_new();
+  gtk_grid_attach(GTK_GRID(grid), d->passwd_entry, 1,2,1,1);
+
+  gtk_entry_set_activates_default(GTK_ENTRY(d->passwd_entry), TRUE);
+
+  gtk_entry_set_visibility(GTK_ENTRY(d->passwd_entry), FALSE);
+
+
+  //hide passwd_label/entry when init
   //If password requested, it will show in on_session_request function.
-  gtk_widget_set_visible(d->entry_label, FALSE);
-  gtk_widget_set_visible(d->entry, FALSE);
+  gtk_widget_set_visible(d->passwd_label, FALSE);
+  gtk_widget_set_visible(d->passwd_entry, FALSE);
 
-  g_signal_connect(d->entry, "activate", G_CALLBACK(ok_btn_click_cb), d);
+  g_signal_connect(d->passwd_entry, "activate", G_CALLBACK(ok_btn_click_cb), d);
 
-  d->status = gtk_label_new(NULL);
-  gtk_grid_attach(GTK_GRID(grid), d->status, 0,3,2,1);
+  d->status_label = gtk_label_new(NULL);
+  gtk_grid_attach(GTK_GRID(grid), d->status_label, 0,3,2,1);
  
 
   GtkWidget *cancel_button = gtk_button_new_with_label("Cancel");
@@ -308,7 +317,7 @@ static void initiate_authentication(PolkitAgentListener  *listener,
   
   g_signal_connect(cancellable, "cancelled", G_CALLBACK(on_cancelled), d);
 
-  gtk_widget_grab_focus(d->entry);
+  gtk_widget_grab_focus(d->passwd_entry);
 
   gtk_window_present(GTK_WINDOW(d->auth_dlg));
 }
