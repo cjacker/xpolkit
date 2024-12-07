@@ -1,9 +1,10 @@
-### eXtremely simple PolicyKit Agent
+### eXtremely lightweight PolicyKit Agent
 
-Xpolkit agent provides an Authentication Agent for PolicyKit, intend to be used with Desktop Environment which did not provide an integration polkit agent.
+Xpolkit agent provides a super lightweight authentication agent for PolicyKit, it intends to be used with lightweight desktop environments which did not provide an integration polkit agent, such as i3 and sway.
 
-Some codes from xfce polkit and mate polkit.
+**Features:**
 
-Using `pkexec <cmd>` to test it.
+- requires only polkit and gtk4
+- support fingerprint / password auth very well.
 
 See http://www.freedesktop.org/wiki/Software/PolicyKit for more info about Polkit
