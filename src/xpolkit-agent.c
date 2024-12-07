@@ -277,7 +277,6 @@ static void initiate_authentication(PolkitAgentListener  *listener,
 
   gtk_drop_down_set_selected(GTK_DROP_DOWN(d->id_dropdown), 0);  
 
-  on_user_changed(GTK_DROP_DOWN(d->id_dropdown), NULL, d );
 
 
   d->passwd_label = gtk_label_new(NULL);
@@ -320,6 +319,8 @@ static void initiate_authentication(PolkitAgentListener  *listener,
   gtk_widget_grab_focus(d->passwd_entry);
 
   gtk_window_present(GTK_WINDOW(d->auth_dlg));
+  
+  on_user_changed(GTK_DROP_DOWN(d->id_dropdown), NULL, d );
 }
 
 static gboolean initiate_authentication_finish(PolkitAgentListener *listener,
